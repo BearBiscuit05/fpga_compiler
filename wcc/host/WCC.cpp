@@ -82,7 +82,9 @@ class Env
 public:
 	void setEnv(){
         cl_int iStatus = 0;
-        this->platform = findPlatform("Intel");
+        //this->platform = findPlatform("Intel");
+        //this->platform = findPlatform("Intel(R) FPGA Emulation Platform for OpenCL(TM)");
+        this->platform = findPlatform("Intel(R) FPGA SDK for OpenCL(TM)");
         noPtrCheck(this->platform,"ERROR: Unable to find Intel(R) FPGA OpenCL platform.\n");
         
         cl_uint num_devices = 0;
@@ -425,13 +427,13 @@ public:
 
 int main(int argc, char *argv[]){
     std::vector<std::string> filePath{
-    "/home/fpga/HGC/data/testGraph.txt",
-    "/home/fpga/HGC/data/10kV_100kE.txt",
-    "/home/fpga/HGC/data/soc-pokec-relationships.txt",
-    "/home/fpga/HGC/data/web-BerkStan.txt",
-    "/home/fpga/HGC/data/amazon0601.txt",
-    "/home/fpga/HGC/data/roadNet-PA.txt",
-    "/home/fpga/HGC/data/wiki-topcats.txt"};
+    "/home/nodb/OpenCLFPGA/data/testGraph.txt",
+    "/home/nodb/OpenCLFPGA/data/10kV_100kE.txt",
+    "/home/nodb/OpenCLFPGA/data/soc-pokec-relationships.txt",
+    "/home/nodb/OpenCLFPGA/data/web-BerkStan.txt",
+    "/home/nodb/OpenCLFPGA/data/amazon0601.txt",
+    "/home/nodb/OpenCLFPGA/data/roadNet-PA.txt",
+    "/home/nodb/OpenCLFPGA/data/wiki-topcats.txt"};
     std::vector<int> initNode{0,0,46,254913,0,0,46};
     std::vector<int> iter{0,0,13,198,36,542,22};
     int ID = argv[1][0] - '0';

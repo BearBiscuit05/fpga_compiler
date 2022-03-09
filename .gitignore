@@ -2,7 +2,7 @@
 /*/bin
 *.aocx
 *.aoc0
-
+/data
 # Prerequisites
 *.d
 
