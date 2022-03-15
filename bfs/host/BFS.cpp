@@ -4,6 +4,8 @@
 #include <CL/opencl.h>
 #include "AOCLUtils/aocl_utils.h"
 
+//#define ENGINE_DEBUG
+//#define MERGE_DEBUG
 
 using namespace aocl_utils;
 class Graph
@@ -168,42 +170,57 @@ public:
         std::vector<int> mValues(this->MemSpace);
         clock_t start, end, subStart, subEnd, subiter;
         start = clock();
+#ifdef ENGINE_DEBUG
         while (this->graph.activeNodeNum > 0) {
             std::cout << "----------------------" << std::endl;
             std::cout << "this is iter : " << iter++ << std::endl;
-            //subStart = clock();
-            //subiter = clock();
+            subStart = clock(),subiter = clock();;
             std::vector<Graph> subGraph = graph.divideGraphByEdge(partition);
-            std::cout << "divide" << std::endl;
-            //cout << "divide run time: " << (double)(clock() - subStart) << "ms" << endl;
+            std::cout << "divide run time: " << (double)(clock() - subStart)/CLOCKS_PER_SEC << "s" << std::endl;
             for (auto& g : subGraph) {
                 mValues.assign(this->MemSpace, INT32_MAX);
-                //subStart = clock();
-                std::cout << "Gen" << std::endl;
+                subStart = clock();
                 MSGGenMerge_FPGA(g, mValues);
-                //cout << "Gen run time: " << (double)(clock() - subStart) << "ms" << endl;
-                //subStart = clock();
-                std::cout << "apply" << std::endl;
+                cout << "Gen run time: " << (double)(clock() - subStart)/CLOCKS_PER_SEC << "s" << endl;
+                subStart = clock();
                 MSGApply_FPGA(g, mValues);
-                //cout << "Apply run time: " << (double)(clock() - subStart) << "ms" << endl;
+                cout << "Apply run time: " << (double)(clock() - subStart)/CLOCKS_PER_SEC << "s" << endl;
             }
-            std::cout << "Merge" << std::endl;
-            //subStart = clock();
+            subStart = clock();
             MergeGraph_FPGA(subGraph);
-            //cout << "mergeGraph run time: " << (double)(clock() - subStart) << "ms" << endl;
-            //subStart = clock();
+            cout << "mergeGraph run time: " << (double)(clock() - subStart)/CLOCKS_PER_SEC << "s" << endl;
+            subStart = clock();
             this->graph.activeNodeNum = GatherActiveNodeNum_FPGA(this->graph.vertexActive);
-            //cout << "Gather run time: " << (double)(clock() - subStart) << "ms" << endl;
-            //cout << "------------------------------" << endl;
+            cout << "Gather run time: " << (double)(clock() - subStart)/CLOCKS_PER_SEC << "s" << endl;
+            cout << "------------------------------" << endl;
             //cout << "iter run  time: " << (double)(clock() - subiter) << "ms" << endl;
             std::cout << "active node number" << this->graph.activeNodeNum << std::endl;
             std::cout << "------------------------------" << std::endl;
-
             if(iter > runiter)
                 break;
         }
         end = clock();
         std::cout << "Run time: " << (double)(end - start)/CLOCKS_PER_SEC << "ms" << std::endl;
+#else
+        while (this->graph.activeNodeNum > 0) {
+            std::cout << "----------------------" << std::endl;
+            std::cout << "this is iter : " << iter++ << std::endl;
+            std::vector<Graph> subGraph = graph.divideGraphByEdge(partition);
+            for (auto& g : subGraph) {
+                mValues.assign(this->MemSpace, INT32_MAX);
+                MSGGenMerge_FPGA(g, mValues);
+                MSGApply_FPGA(g, mValues);
+            }
+            MergeGraph_FPGA(subGraph);
+            this->graph.activeNodeNum = GatherActiveNodeNum_FPGA(this->graph.vertexActive);
+            std::cout << "active node number" << this->graph.activeNodeNum << std::endl;
+            std::cout << "------------------------------" << std::endl;
+            if(iter > runiter)
+                break;
+        }
+        end = clock();
+        std::cout << "Run time: " << (double)(end - start)/CLOCKS_PER_SEC << "ms" << std::endl;
+#endif
     }
 
 	void MSGGenMerge_FPGA(Graph& g, std::vector<int>& mValue){
@@ -232,7 +249,7 @@ public:
             checkError(iStatus, "set kernel agrs fail!");
         }
 
-        cl_event startEvt;
+        cl_event startEvt event,read_event;
         index = -1;
         clEnqueueWriteBuffer(env.queue, env.clMem[kernelID][++index], CL_TRUE, 0, g.eCount * sizeof(int), &g.edgeSrc[0], 0, nullptr, nullptr);
         clEnqueueWriteBuffer(env.queue, env.clMem[kernelID][++index], CL_TRUE, 0, g.eCount * sizeof(int), &g.edgeDst[0], 0, nullptr, nullptr);
@@ -240,11 +257,31 @@ public:
         clEnqueueWriteBuffer(env.queue, env.clMem[kernelID][++index], CL_TRUE, 0, this->MemSpace*sizeof(int), &mValue[0], 0, nullptr, &startEvt);
         clWaitForEvents(1, &startEvt);
 
-        iStatus = clEnqueueNDRangeKernel(env.queue, env.kernels[kernelID], dim, NULL, &globalSize, nullptr, 0, NULL, NULL);
+        iStatus = clEnqueueNDRangeKernel(env.queue, env.kernels[kernelID], dim, NULL, &globalSize, nullptr, 0, NULL, &event);
         checkError(iStatus, "Can not run GenMerge kernel");
+        clWaitForEvents(1, &event);
 
-        iStatus = clEnqueueReadBuffer(env.queue, env.clMem[kernelID][3], CL_TRUE, 0, this->MemSpace * sizeof(int), &mValue[0], 0, NULL, NULL);
+        iStatus = clEnqueueReadBuffer(env.queue, env.clMem[kernelID][3], CL_TRUE, 0, this->MemSpace * sizeof(int), &mValue[0], 0, NULL,  &read_event);
         checkError(iStatus, "Can not reading result buffer");
+        clWaitForEvents(1, &read_event);
+#ifdef MERGE_DEBUG
+        cl_ulong time_start,time_end;
+
+        clGetEventProfilingInfo(startEvt, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        clGetEventProfilingInfo(startEvt, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        double nanoSeconds = time_end-time_start;
+        printf("OpenCL write buffer time is: %0.3f ms \n",nanoSeconds / 1000000.0));
+
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        nanoSeconds = time_end-time_start;
+        printf("OpenCL run time is: %0.3f ms \n",nanoSeconds / 1000000.0);
+
+        clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+        clGetEventProfilingInfo(read_event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+        nanoSeconds = time_end-time_start;
+        printf("OpenCL run time is: %0.3f ms \n",nanoSeconds / 1000000.0);
+#endif
     }
 
 	void MSGApply_FPGA(Graph& g, std::vector<int>& mValue){
@@ -379,17 +416,20 @@ public:
 };
 
 int main(int argc, char **argv){
+    std::string path = "/home/fpga/HGC/data/"; 
     std::vector<std::string> filePath{
-    "/home/fpga/HGC/data/testGraph.txt",
-    "/home/fpga/HGC/data/10kV_100kE.txt",
-    "/home/fpga/HGC/data/soc-pokec-relationships.txt",
-    "/home/fpga/HGC/data/web-BerkStan.txt",
-    "/home/fpga/HGC/data/amazon0601.txt",
-    "/home/fpga/HGC/data/roadNet-PA.txt",
-    "/home/fpga/HGC/data/wiki-topcats.txt"};
+    "testGraph.txt",
+    "10kV_100kE.txt",
+    "soc-pokec-relationships.txt",
+    "web-BerkStan.txt",
+    "amazon0601.txt",
+    "roadNet-PA.txt",
+    "wiki-topcats.txt"};
+    
     std::vector<int> initNode{0,0,46,254913,0,0,46};
     std::vector<int> iter{999,999,13,198,36,542,22};
     int ID = argv[1][0] - '0';
-    BFS bfs = BFS(filePath[ID],initNode[ID],2,iter[ID]);
+    path = path + filePath[ID];
+    BFS bfs = BFS(path,initNode[ID],2,iter[ID]);
     return 0;
 }
